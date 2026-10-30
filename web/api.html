@@ -1,0 +1,23 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ZeroMemory · 本地 API</title><link rel="stylesheet" href="/static/style.css"><link rel="icon" href="/static/public/zero-avatar.png"></head><body><main class="api-docs"><a href="/">← 返回管理页面</a><h1>ZeroMemory 本地 API</h1><p>所有业务接口需要本机管理会话或作用域 Bearer 令牌。浏览器写入还需 X-Zero-Request: 1。默认仅监听回环地址。</p><p><a href="/openapi.json">完整 OpenAPI JSON schema</a> · <a href="/health">健康状态</a></p><section class="card"><h2>主要接口</h2><pre>GET    /v1/identity                       读取身份
+PATCH  /v1/identity                       显式授权 + 版本号更新人格
+GET    /v1/identity/versions              身份版本
+POST   /v1/memories/search                作用域关键词检索
+POST   /v1/memories/propose               提议待审核记忆
+POST   /v1/memories/{id}/approve          管理员批准
+PATCH  /v1/memories/{id}                  生成新待审核版本
+POST   /v1/memories/{id}/revoke           撤销
+POST   /v1/memories/merge                 人工合并并保留来源
+DELETE /v1/memories/{id}                  清理活动记录和索引
+POST   /v1/imports                        multipart 上传并预览
+POST   /v1/imports/{id}/start             启动 / 断点续跑
+GET    /v1/imports/{id}                   查询进度
+GET    /v1/messages                       查看本地原文（管理员）
+POST   /v1/extractions/quote/{key}        人工引用用户原文为候选
+POST   /v1/extractions/preview            预览这一批模型提炼上下文
+POST   /v1/extractions/run                模型提炼（无模型时明确等待）
+GET    /v1/context                        同一身份与已批准记忆
+POST   /v1/chat/preview                   本次完整发送上下文
+POST   /v1/chat                           调用配置的模型
+POST   /v1/clients                        创建 scoped token（管理员）
+POST   /v1/backup                         可读快照与校验清单
+POST   /v1/restore                        验证并恢复至新目录</pre></section><p class="subtle">此页面完全本地加载，无外部脚本或 CDN。MCP 接入示例位于项目 docs/MCP_SETUP.md；完整数据模型见 docs/DATA_MODEL.md。</p></main></body></html>

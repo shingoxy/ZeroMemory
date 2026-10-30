@@ -1,0 +1,38 @@
+[project]
+name = "zero-memory"
+version = "0.2.0"
+description = "Local, portable identity and evidence-backed memory for Zero"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.7,<3",
+  "PyYAML>=6,<7", "httpx>=0.28,<1", "python-multipart>=0.0.20,<1",
+  "ijson>=3.3,<4", "mcp>=1.12,<2", "portalocker>=3,<4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1", "pillow>=11,<13"]
+
+[project.scripts]
+zero-memory = "zero_memory.__main__:main"
+zero-mcp = "zero_memory.mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zero_memory"]
+[tool.hatch.build.targets.wheel.force-include]
+"web" = "zero_memory/web"
+"THIRD_PARTY_NOTICES.md" = "zero_memory/THIRD_PARTY_NOTICES.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
