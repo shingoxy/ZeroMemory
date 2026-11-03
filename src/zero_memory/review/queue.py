@@ -3,11 +3,11 @@
 import json
 
 from zero_memory.core.store import dumps, now
+from zero_memory.review.links import EMPTY_LINKS, link_counts
 from zero_memory.review.runs import run_like, run_of
 from zero_memory.review.tables import initialized, install
 
 VIEWS = ("active", "deferred", "low_priority", "sensitive")
-EMPTY_LINKS = {"evidence": 0, "conflict": 0}
 # 优先级 = 置信度 × 不同来源消息数（至少按 1 条计），与 priority() 保持一致
 PRIORITY_SQL = ("COALESCE(json_extract(m.body,'$.confidence'),0) * "
                 "max(1,(SELECT count(DISTINCT value) FROM json_each(m.body,'$.source_message_keys')))")
@@ -73,7 +73,7 @@ def queue(store, scope, *, view="active", memory_type=None, source_type=None, ru
                           "LIMIT ? OFFSET ?", [*params, *extra, limit, offset]).fetchall()
         memories = [json.loads(row[0]) for row in rows]
         deferred = deferred_ids(db, scope)
-        links = {}
+        links = link_counts(db, scope, [m["memory_id"] for m in memories])
     return {"items": [{**m, "review": review_meta(m, deferred, links, threshold)} for m in memories],
             "counts": counts, "offset": offset, "limit": limit, "threshold": threshold}
 

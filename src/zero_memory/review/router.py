@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import Field
 
+from zero_memory.review import links as review_links
 from zero_memory.review import queue as review_queue
 from zero_memory.schemas.models import MemoryType, Scope
 
@@ -18,6 +19,10 @@ def as_scope(value) -> Scope:
 class DeferRequest(Scope):
     memory_ids: list[str] = Field(min_length=1, max_length=200)
     undo: bool = False
+
+
+class LinkDecision(Scope):
+    decision: Literal["confirm", "dismiss"]
 
 
 def review_router(store, backend, web_admin):
@@ -36,5 +41,17 @@ def review_router(store, backend, web_admin):
     @router.post("/defer")
     def defer(body: DeferRequest):
         return review_queue.defer(store, as_scope(body), body.memory_ids, "admin", undo=body.undo)
+
+    @router.post("/links/suggest")
+    def suggest_links(body: Scope):
+        return review_links.suggest_links(store, body)
+
+    @router.get("/links")
+    def links(memory_id: str = Query(max_length=100), user_id: str = "default-user", project_id: str = "default"):
+        return review_links.links_for(store, Scope(user_id=user_id, project_id=project_id), memory_id)
+
+    @router.post("/links/{link_id}")
+    def decide_link(link_id: str, body: LinkDecision):
+        return review_links.decide_link(store, as_scope(body), link_id, body.decision)
 
     return router
