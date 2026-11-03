@@ -2,17 +2,9 @@
 
 from zero_memory.core.errors import ServiceError
 from zero_memory.review.runs import run_like
+from zero_memory.review.sensitive import count_run_items, reject_run_items
 
 RUN_SQL = "user_id=? AND agent_id=? AND project_id=? AND json_extract(body,'$.review_note') LIKE ?"
-
-
-def _sensitive_count(store, scope, run_id):
-    # Task 7 接入敏感队列前不计数
-    return 0
-
-
-def _sensitive_reject(store, scope, run_id, actor):
-    return 0
 
 
 def revoke_run(store, backend, scope, run_id, confirm=None, actor="admin"):
@@ -23,7 +15,7 @@ def revoke_run(store, backend, scope, run_id, confirm=None, actor="admin"):
             f"SELECT id FROM memories WHERE {RUN_SQL} AND status='pending_review' ORDER BY id", params)]
     pending = statuses.get("pending_review", 0)
     approved = statuses.get("approved", 0) + statuses.get("superseded", 0)
-    sensitive_items = _sensitive_count(store, scope, run_id)
+    sensitive_items = count_run_items(store, scope, run_id)
     if not sum(statuses.values()) and not sensitive_items:
         raise ServiceError("run_not_found", "批次不存在或不在授权作用域内", 404)
     expected = f"确认撤销批次 {run_id}"
@@ -37,4 +29,4 @@ def revoke_run(store, backend, scope, run_id, confirm=None, actor="admin"):
         backend.transition(memory_id, scope, "rejected", actor=actor, audit_action="memory_run_revoke",
                            details={"run_id": run_id})
     return {"run_id": run_id, "rejected": len(pending_ids),
-            "sensitive_rejected": _sensitive_reject(store, scope, run_id, actor)}
+            "sensitive_rejected": reject_run_items(store, scope, run_id, actor)}

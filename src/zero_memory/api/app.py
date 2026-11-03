@@ -312,6 +312,9 @@ def create_app(settings: Settings | None = None):
             p.require_admin()
         if not p.admin and body.status != "approved":
             raise ServiceError("review_private", "客户端只能读取已批准记忆", 403)
+        if not p.admin:
+            # 敏感记忆只在本机 Web 管理会话中可见，客户端令牌与 MCP 一律排除
+            body = body.model_copy(update={"exclude_sensitive": True})
         return {"items": backend.search(body), "offset": body.offset, "limit": body.limit}
 
     @app.post("/v1/memories/propose")

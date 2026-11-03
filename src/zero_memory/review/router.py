@@ -9,6 +9,7 @@ from zero_memory.review import batch as review_batch
 from zero_memory.review import links as review_links
 from zero_memory.review import queue as review_queue
 from zero_memory.review import revoke as review_revoke
+from zero_memory.review import sensitive as review_sensitive
 from zero_memory.review import stats as review_stats
 from zero_memory.schemas.models import MemoryType, Scope
 
@@ -30,6 +31,10 @@ class LinkDecision(Scope):
 
 class RevokeRequest(Scope):
     confirm: str | None = Field(default=None, max_length=200)
+
+
+class SensitiveAction(Scope):
+    action: Literal["keep_sensitive", "to_private", "reject", "defer"]
 
 
 def review_router(store, backend, web_admin):
@@ -64,6 +69,14 @@ def review_router(store, backend, web_admin):
     @router.post("/runs/{run_id}/revoke")
     def revoke_run(body: RevokeRequest, run_id: str = Path(pattern=RUN_ID)):
         return review_revoke.revoke_run(store, backend, as_scope(body), run_id, body.confirm)
+
+    @router.get("/sensitive")
+    def sensitive(user_id: str = "default-user", project_id: str = "default"):
+        return review_sensitive.sensitive_items(store, Scope(user_id=user_id, project_id=project_id))
+
+    @router.post("/sensitive/{item_id}")
+    def sensitive_action(body: SensitiveAction, item_id: str = Path(pattern=RUN_ID)):
+        return review_sensitive.act(store, backend, as_scope(body), item_id, body.action)
 
     @router.post("/links/suggest")
     def suggest_links(body: Scope):

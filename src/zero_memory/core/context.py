@@ -58,7 +58,8 @@ class ContextBuilder:
         if used + len(state_line) + 16 <= budget:
             messages.append({"role": "user", "content": state_line})
             used += len(state_line)+16
-        memories = self.backend.search(Search(**scope.model_dump(), query=query[:500], limit=30))
+        # 模型上下文始终排除敏感记忆，无论本地还是云端模型
+        memories = self.backend.search(Search(**scope.model_dump(), query=query[:500], limit=30, exclude_sensitive=True))
         # A full natural-language query may not be an exact substring: try informative words deterministically.
         if not memories and query:
             import re
@@ -70,7 +71,9 @@ class ContextBuilder:
                     segment[i : i + 2] for i in range(len(segment) - 1) if segment[i : i + 2] not in stop
                 )
             for term in sorted(terms, key=lambda x: (-len(x), x))[:32]:
-                memories = self.backend.search(Search(**scope.model_dump(), query=term[:100], limit=10))
+                memories = self.backend.search(
+                    Search(**scope.model_dump(), query=term[:100], limit=10, exclude_sensitive=True)
+                )
                 if memories:
                     break
         included = []
