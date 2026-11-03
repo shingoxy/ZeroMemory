@@ -24,7 +24,7 @@ async function navigate(next, evidence) {
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
   $('page-title').textContent={overview:'身份与状态',observatory:'记忆星海',activity:'持续目标与经历',memories:'记忆档案',imports:'导入对话',rawHistory:'原始对话',review:'审核工作台',chat:'与零对话',settings:'模型与系统'}[page];
   content.innerHTML='<p class="subtle">正在读取本地数据…</p>';
-  try {await ({overview,observatory:()=>observatory(),activity:()=>activityPage(),memories:()=>memoryPage(false),imports,rawHistory:()=>rawHistoryPage(evidence),review:()=>memoryPage(true),chat,settings})[page]();}
+  try {await ({overview,observatory:()=>observatory(),activity:()=>activityPage(),memories:()=>memoryPage(),imports,rawHistory:()=>rawHistoryPage(evidence),review:()=>reviewPage(),chat,settings})[page]();}
   catch(e){content.innerHTML='<div class="empty">暂时无法加载。请检查本地服务后重试。</div>';notify(e.message,true);}
 }
 async function overview() {
@@ -48,28 +48,16 @@ function deepSeekLabel(memory) {
   return '';
 }
 function renderMemory(m,review=false) {return `<article class="memory"><div class="checkbox-row">${review?`<input type="checkbox" data-select="${esc(m.memory_id)}" aria-label="选择此记忆">`:''}<div><span class="tag">${esc(types[m.memory_type])}</span><span class="tag ${esc(m.status)}">${esc(statuses[m.status])}</span><span class="tag">${esc(m.source_type)} · ${esc(m.source_role)}</span>${deepSeekLabel(m)}<p class="memory-content">${esc(m.content)}</p><p class="meta">${esc(m.event_time||m.event_time_original||m.extracted_at)} · v${m.version} · ${esc(m.memory_id)}</p>${m.evidence?`<div class="evidence">证据：${esc(m.evidence)}</div>`:''}${m.conflicts.length?`<p class="warn subtle">存在冲突：${esc(m.conflicts.join(', '))}</p>`:''}<div class="actions"><button class="ghost" data-detail="${esc(m.memory_id)}">来源与修订</button>${m.status==='pending_review'?`<button data-approve="${esc(m.memory_id)}">批准</button><button class="secondary" data-reject="${esc(m.memory_id)}">驳回</button>`:''}<button class="ghost" data-edit="${esc(m.memory_id)}">编辑</button><button class="ghost" data-merge="${esc(m.memory_id)}">合并</button>${m.status==='approved'?`<button class="ghost" data-revoke="${esc(m.memory_id)}">撤销</button>`:''}<button class="ghost" data-delete="${esc(m.memory_id)}">删除</button></div></div></div></article>`;}
-async function memoryPage(review) {
-  content.innerHTML=`<section class="card"><div class="section-head"><h2>${review?'每一条事实，都由你确认。':'属于零的长期记忆'}</h2><button id="new-memory" class="secondary">手工提议记忆</button></div><p class="subtle">${review?'自动提炼只产生候选；旧 Assistant 内容保留外部推断标记。批量批准遇到冲突时会报告并跳过。':'只向模型提供已批准记忆。修改会生成新版本，并重新进入审核。'}</p><div class="filters"><input id="memory-query" placeholder="关键词，支持中文子串" aria-label="搜索记忆"><select id="memory-type" aria-label="记忆类型">${options(types,'',true)}</select><select id="memory-status" aria-label="记忆状态">${options(statuses,review?'pending_review':'approved',true)}</select><input id="memory-source" placeholder="来源类型" aria-label="来源类型"></div><div class="filter-dates"><label>起始日期<input type="date" id="memory-since"></label><label>结束日期<input type="date" id="memory-until"></label><button id="memory-search">检索</button></div>${review?'<div class="actions"><label class="check"><input id="select-all" type="checkbox">全选此页</label><button id="batch-approve">批准所选</button><button class="secondary" id="batch-reject">驳回所选</button></div>':''}<div id="memory-results"></div><div class="actions"><button id="memory-prev" class="secondary">上一页</button><button id="memory-next" class="secondary">下一页</button></div></section>`;
-  if (review) {
-    $("memory-search").insertAdjacentHTML("beforebegin", '<label class="check"><input id="review-deepseek-pilot" type="checkbox">只看早期 DeepSeek 试点</label>');
-    $("review-deepseek-pilot").checked = location.hash === "#deepseek-pilot";
-    if (reviewImportedMemories) $("memory-source").value = "chatgpt_export";
-    if (reviewImportedMemories || location.hash === "#deepseek-pilot") {
-      $("memory-search").insertAdjacentHTML("afterend", '<a href="/?review=all">查看全部待审核</a>');
-    }
-  }
+async function memoryPage() {
+  content.innerHTML=`<section class="card"><div class="section-head"><h2>属于零的长期记忆</h2><button id="new-memory" class="secondary">手工提议记忆</button></div><p class="subtle">只向模型提供已批准记忆。修改会生成新版本，并重新进入审核。</p><div class="filters"><input id="memory-query" placeholder="关键词，支持中文子串" aria-label="搜索记忆"><select id="memory-type" aria-label="记忆类型">${options(types,'',true)}</select><select id="memory-status" aria-label="记忆状态">${options(statuses,'approved',true)}</select><input id="memory-source" placeholder="来源类型" aria-label="来源类型"></div><div class="filter-dates"><label>起始日期<input type="date" id="memory-since"></label><label>结束日期<input type="date" id="memory-until"></label><button id="memory-search">检索</button></div><div id="memory-results"></div><div class="actions"><button id="memory-prev" class="secondary">上一页</button><button id="memory-next" class="secondary">下一页</button></div></section>`;
   let offset=0;
   async function load() {
     const params={...scope,query:$('memory-query').value,status:$('memory-status').value||null,memory_type:$('memory-type').value||null,source_type:$('memory-source').value||null,limit:30,offset,since:$('memory-since').value?$('memory-since').value+'T00:00:00+00:00':null,until:$('memory-until').value?$('memory-until').value+'T23:59:59+00:00':null};
-    if ($("review-deepseek-pilot")?.checked) params.review_origin = "deepseek_pilot";
-    const data=await api('/v1/memories/search',{method:'POST',body:params});currentItems=data.items;$('memory-results').innerHTML=data.items.length?data.items.map(m=>renderMemory(m,review)).join(''):'<div class="empty">这里还没有符合条件的记忆。可以导入对话，再引用原文或使用模型提炼候选。</div>';
+    const data=await api('/v1/memories/search',{method:'POST',body:params});currentItems=data.items;$('memory-results').innerHTML=data.items.length?data.items.map(m=>renderMemory(m,false)).join(''):'<div class="empty">这里还没有符合条件的记忆。可以导入对话，再引用原文或使用模型提炼候选。</div>';
     $('memory-prev').disabled=offset===0;$('memory-next').disabled=data.items.length<30; bindMemoryActions(load);
   }
-  bind('review-deepseek-pilot','change',async()=>{offset=0;await load();});
   bind('memory-search','click',async()=>{offset=0;await load();});bind('memory-prev','click',async()=>{offset=Math.max(0,offset-30);await load();});bind('memory-next','click',async()=>{offset+=30;await load();});
   bind('new-memory','click',()=>memoryEditor(null,load));
-  bind('select-all','change',ev=>document.querySelectorAll('[data-select]').forEach(x=>x.checked=ev.target.checked));
-  for(const action of ['approve','reject']) bind('batch-'+action,'click',async()=>{const ids=[...document.querySelectorAll('[data-select]:checked')].map(x=>x.dataset.select);if(!ids.length)return;let success=0,errors=[];for(const id of ids){try{const m=currentItems.find(x=>x.memory_id===id);await approveOrReject(m,action);success++;}catch(e){errors.push(e.message);}}await load();notify(`完成 ${success} 条${errors.length?'；'+errors.join('；'):''}`,!!errors.length);});
   await load();
 }
 async function approveOrReject(m,action) {const body={...scope};if(action==='approve'){if(m.conflicts.length || m.summary_links?.length){const id=prompt('请选择取代的旧 memory_id（较早事件不能取代较新事件）',m.conflicts[0] || m.summary_links[0]);if(!id)throw Error('未指定冲突处理');body.supersedes=id;}if(!m.evidence_verified||m.source_role!=='user'){if(!confirm('这是一条手工陈述或外部推断，不能视为已验证的用户亲述。仍批准为可引用资料？'))throw Error('未确认外部资料');body.confirm_external=true;}}return api(`/v1/memories/${m.memory_id}/${action}`,{method:'POST',body});}
@@ -77,10 +65,11 @@ function evidenceControls(memory) {
   if (memory.source_type !== 'chatgpt_export') return '';
   const keys = [...new Set(memory.source_message_keys || [])];
   return keys.map((_, index) => `<button type="button" class="secondary" data-evidence-index="${index}">打开原始消息 ${index + 1}</button>`).join('')
-    + '<button type="button" class="secondary" id="evidence-associations">对照旧记忆</button><div id="evidence-matches"></div>';
+    + '<button type="button" class="secondary" id="evidence-associations">对照旧记忆</button><div id="evidence-matches"></div><div id="link-suggestions"></div>';
 }
 function bindEvidenceActions(memory) {
   const keys = [...new Set(memory.source_message_keys || [])];
+  if (memory.source_type === 'chatgpt_export') loadLinkSuggestions(memory).catch(error => notify(error.message, true));
   bind('evidence-associations', 'click', async event => {
     const button = event.currentTarget;
     const result = await api(`/v1/raw-history/associations/${encodeURIComponent(memory.memory_id)}?${qs()}`);
@@ -157,4 +146,5 @@ $('detail-close').onclick=()=>$('detail').close();
 $('scope-apply').onclick=()=>{scope={...scope,user_id:$('scope-user').value.trim(),project_id:$('scope-project').value.trim()};messageOffset=0;navigate(page);};
 const reviewMode = new URLSearchParams(location.search).get('review');
 const reviewImportedMemories = reviewMode === 'chatgpt_export';
-navigate(reviewImportedMemories || reviewMode === 'all' || location.hash === '#deepseek-pilot' ? 'review' : 'overview');
+// 等所有 defer 脚本（含 review.js）执行完再进入首页，避免页面函数尚未定义
+document.addEventListener('DOMContentLoaded', () => navigate(reviewImportedMemories || reviewMode === 'all' || location.hash === '#deepseek-pilot' ? 'review' : 'overview'));

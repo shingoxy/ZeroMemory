@@ -4,3 +4,13 @@
 
 .obs-detail,.act-list,.act-list .memory{overflow-wrap:anywhere}.obs-detail details{min-width:0}
 .raw-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 18px}.tab{background:#e8ede6;color:var(--ink)}.tab.active{background:var(--green);color:#fff}
+.review-card{border-radius:10px;padding:0 10px;margin:0 -10px}.review-card.focused{background:#f6faf0;box-shadow:inset 3px 0 0 var(--green)}
+.review-badges{display:flex;flex-wrap:wrap;gap:6px;padding-top:12px}.tag.badge-a{background:#e3efe9;color:var(--green)}.tag.badge-c{background:#fbf0da;color:#a78134}
+.sensitive-banner{background:#fbf0da;color:#7a5a1c;border-radius:10px;padding:12px 15px;margin-bottom:12px;font-size:13px}
+.table-wrap{overflow-x:auto;max-width:100%}table.runs{border-collapse:collapse;width:100%;font-size:12px}
+table.runs th,table.runs td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;white-space:nowrap}.run-actions{display:flex;gap:4px}
+.threshold{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}.threshold input{width:80px}
+.samples li{margin-bottom:10px}.link-item{border-top:1px solid var(--line);padding:8px 0;overflow-wrap:anywhere}
+kbd{border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px;background:#fff}
+@media (max-width:700px){.review-card{margin:0;padding:0 6px}}

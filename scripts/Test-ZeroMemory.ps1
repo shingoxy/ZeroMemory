@@ -20,6 +20,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Observatory JavaScript syntax failed.' }
         & node --check web/activity.js
         if ($LASTEXITCODE -ne 0) { throw 'Activity JavaScript syntax failed.' }
+        & node --check web/raw-history.js
+        if ($LASTEXITCODE -ne 0) { throw 'Raw history JavaScript syntax failed.' }
+        & node --check web/review.js
+        if ($LASTEXITCODE -ne 0) { throw 'Review JavaScript syntax failed.' }
     }
     $testDirectory = Join-Path $projectRoot ('output/pytest-' + [guid]::NewGuid().ToString())
     & $pythonExe -m pytest -q --basetemp $testDirectory --junitxml output/junit.xml
