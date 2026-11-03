@@ -314,7 +314,7 @@ class SQLiteBackend:
             self.store.audit(db, "memory_edit", actor, memory_id, {"version": memory.version})
             return memory
 
-    def transition(self, memory_id, scope, status, actor="admin"):
+    def transition(self, memory_id, scope, status, actor="admin", audit_action=None, details=None):
         if status not in {"revoked", "rejected"}:
             raise ServiceError("status", "未知状态")
         with self.store.write() as db:
@@ -322,7 +322,7 @@ class SQLiteBackend:
             memory.status, memory.valid_to = status, now()
             memory.version += 1
             self._put(db, memory)
-            self.store.audit(db, "memory_" + status, actor, memory_id)
+            self.store.audit(db, audit_action or "memory_" + status, actor, memory_id, details)
             return memory
 
     def merge(self, scope, memory_ids, content, actor="admin"):

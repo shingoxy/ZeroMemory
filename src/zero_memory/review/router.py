@@ -2,12 +2,13 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from pydantic import Field
 
 from zero_memory.review import batch as review_batch
 from zero_memory.review import links as review_links
 from zero_memory.review import queue as review_queue
+from zero_memory.review import revoke as review_revoke
 from zero_memory.schemas.models import MemoryType, Scope
 
 RUN_ID = r"^[0-9a-f]{64}$"
@@ -24,6 +25,10 @@ class DeferRequest(Scope):
 
 class LinkDecision(Scope):
     decision: Literal["confirm", "dismiss"]
+
+
+class RevokeRequest(Scope):
+    confirm: str | None = Field(default=None, max_length=200)
 
 
 def review_router(store, backend, web_admin):
@@ -50,6 +55,10 @@ def review_router(store, backend, web_admin):
     @router.post("/batch/apply")
     def batch_apply(body: review_batch.BatchApply):
         return review_batch.apply_batch(store, backend, as_scope(body), body, body.confirm)
+
+    @router.post("/runs/{run_id}/revoke")
+    def revoke_run(body: RevokeRequest, run_id: str = Path(pattern=RUN_ID)):
+        return review_revoke.revoke_run(store, backend, as_scope(body), run_id, body.confirm)
 
     @router.post("/links/suggest")
     def suggest_links(body: Scope):
