@@ -112,3 +112,85 @@ def test_confirmed_topic_batch_resumes_unsent_items_and_quarantines_sensitive(tm
     with app.state.store.read() as db:
         assert db.execute("SELECT count(*) FROM memories").fetchone()[0] == 0
     assert len(list((home / "review_queue/v03b/sensitive").glob("*.json"))) == 1
+
+
+CANARY = "ZM-CANARY-7731"
+
+
+def _engineering_manifest(tmp_path, app, texts):
+    source = tmp_path / "reasons.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("conversations.json", json.dumps([
+            {"id": f"r{i}", "title": "工程工具", "current_node": "u",
+             "mapping": {"u": node(None, [], "user", value)}}
+            for i, value in enumerate(texts)
+        ]))
+    run(app.state.store, prepared(app.state.store, source))
+    return app.state.store.home, prepare(app.state.store.home, topic="工程")
+
+
+def _replay(monkeypatch, replies, calls):
+    # 按调用次序回放合成响应；reply 为 None 时返回没有 choices 的响应体
+    client_factory = httpx.Client
+
+    def request(req):
+        text = json.loads(json.loads(req.content)["messages"][1]["content"])["untrusted_user_text"]
+        calls.append(text)
+        reply = replies[len(calls) - 1]
+        if reply is None:
+            return httpx.Response(200, json={"error": "synthetic"})
+        value = reply(text)
+        content = value if isinstance(value, str) else json.dumps(value)
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    monkeypatch.setattr(cloud_batch.httpx, "Client",
+                        lambda **kwargs: client_factory(**kwargs, transport=httpx.MockTransport(request)))
+    monkeypatch.setattr(cloud_batch, "read_deepseek_key", lambda: "fake-key")
+
+
+def _good(text):
+    return {"content": "合成候选", "evidence": text, "memory_type": "user_profile"}
+
+
+def test_invalid_outputs_record_reason_codes_without_text(tmp_path, app, monkeypatch):
+    texts = [f"我用 python 脚本整理代码笔记 {CANARY} 第{i}条" for i in range(6)]
+    home, manifest = _engineering_manifest(tmp_path, app, texts)
+    replies = [
+        lambda t: "not json",
+        lambda t: {"memories": [_good(t), _good(t)]},
+        lambda t: {"memories": [{**_good(t), "claim_kind": "bogus"}]},
+        lambda t: {"memories": [{**_good(t), "memory_type": "relationship"}]},
+        lambda t: {"memories": [{**_good(t), "summary_links": ["x"]}]},
+        None,
+    ]
+    calls = []
+    _replay(monkeypatch, replies, calls)
+    state = cloud_batch.run_batch(home, manifest, "确认发送批次 " + manifest["preview_id"])
+    assert len(calls) == 6
+    assert [i["status"] for i in state["items"]] == ["invalid_output"] * 6
+    assert [i["reason"] for i in state["items"]] == [
+        "not_json", "multiple_memories", "schema:claim_kind:literal_error",
+        "type_not_allowed", "summary_links", "missing_choices"]
+    summary = cloud_batch.summarize(state)
+    assert summary["reasons"]["not_json"] == 1 and summary["counts"]["invalid_output"] == 6
+    assert CANARY not in json.dumps(state) + json.dumps(summary)
+
+
+def test_max_pending_halts_before_sending(tmp_path, app, client, monkeypatch):
+    home, manifest = _engineering_manifest(tmp_path, app, ["我用 python 脚本整理代码笔记和工具清单"])
+    propose(client, "合成待审核")
+    calls = []
+    _replay(monkeypatch, [None], calls)
+    state = cloud_batch.run_batch(home, manifest, "确认发送批次 " + manifest["preview_id"], max_pending=1)
+    assert state["halted"] == "queue_limit" and calls == []
+    assert [i["status"] for i in state["items"]] == ["pending"]
+
+
+def test_schema_reason_never_echoes_unknown_field_names():
+    from pydantic import ValidationError
+
+    from zero_memory.extraction.service import Candidate
+
+    with pytest.raises(ValidationError) as caught:
+        Candidate.model_validate({"content": "x", "evidence": "x", CANARY: 1})
+    assert cloud_batch.reason_for(caught.value) == "schema:extra:extra_forbidden"

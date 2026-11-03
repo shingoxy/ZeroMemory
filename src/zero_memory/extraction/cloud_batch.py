@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 import portalocker
+from pydantic import ValidationError
 
 from zero_memory.core.store import Store, atomic_json, digest, dumps, now
 from zero_memory.extraction.cloud_preview import MAX_EXPANDED_SAMPLES, SENSITIVE, _rows, reopen
@@ -22,23 +23,59 @@ from zero_memory.schemas.models import Proposal, Scope
 ALLOWED_TYPES = {"user_profile", "episodic", "semantic", "procedural", "working_context"}
 
 
+class ResponseTooLarge(ValueError):
+    pass
+
+
+def reason_for(exc: Exception) -> str:
+    # 原因码只含已知字段名和错误类型；模型给出的未知字段名也可能带原文，统一记为 extra
+    if isinstance(exc, ValidationError):
+        error = exc.errors()[0]
+        path = ".".join(str(p) if isinstance(p, int) or p in Candidate.model_fields else "extra" for p in error["loc"])
+        return f"schema:{path}:{error['type']}"
+    if isinstance(exc, json.JSONDecodeError):
+        return "not_json"
+    if isinstance(exc, ResponseTooLarge):
+        return "response_too_large"
+    if isinstance(exc, (KeyError, IndexError, TypeError)):
+        return "missing_choices"
+    return "invalid_value"
+
+
+def summarize(state):
+    items = state.get("items", [])
+    return {"batch_id": state.get("batch_id"), "halted": state.get("halted"),
+            "counts": Counter(item["status"] for item in items),
+            "reasons": Counter(item["reason"] for item in items if item.get("reason"))}
+
+
+def _pending_count(home, scope):
+    with closing(_rows(home)) as db:
+        return db.execute("SELECT count(*) FROM memories WHERE user_id=? AND agent_id=? AND project_id=? "
+                          "AND status='pending_review'", scope.sql()).fetchone()[0]
+
+
 def save_candidate(home, manifest, scope, body, entry, response):
     value = json.loads(response)
     if not isinstance(value, dict) or set(value) != {'memories'} or not isinstance(value['memories'], list):
-        return {'status': 'invalid_output'}
+        return {'status': 'invalid_output', 'reason': 'bad_shape'}
     items = value['memories']
     if not items:
         return {'status': 'no_candidate'}
-    if len(items) != 1 or not isinstance(items[0], dict):
-        return {'status': 'invalid_output'}
+    if len(items) != 1:
+        return {'status': 'invalid_output', 'reason': 'multiple_memories'}
+    if not isinstance(items[0], dict):
+        return {'status': 'invalid_output', 'reason': 'item_not_object'}
     item = dict(items[0])
     event_time = item.pop('event_time', None)
     candidate = Candidate.model_validate(item)
     source = json.loads(body['messages'][1]['content'])['untrusted_user_text']
     if not candidate.evidence.strip() or candidate.evidence not in source or not candidate.content.strip():
         return {'status': 'evidence_rejected'}
-    if candidate.memory_type not in ALLOWED_TYPES or candidate.summary_links:
-        return {'status': 'invalid_output'}
+    if candidate.memory_type not in ALLOWED_TYPES:
+        return {'status': 'invalid_output', 'reason': 'type_not_allowed'}
+    if candidate.summary_links:
+        return {'status': 'invalid_output', 'reason': 'summary_links'}
     with closing(_rows(home)) as db:
         row = db.execute('SELECT conversation_id,message_id,role,timestamp,content FROM messages WHERE key=? '
                          'AND user_id=? AND agent_id=? AND project_id=?', (entry['message_key'], *scope.sql())).fetchone()
@@ -73,7 +110,7 @@ def save_candidate(home, manifest, scope, body, entry, response):
             'association_suggestions': len(memory.duplicate_candidates), 'conflict_suggestions': len(memory.conflicts)}
 
 
-def run_batch(home, manifest, confirmation):
+def run_batch(home, manifest, confirmation, max_pending=None):
     batch_id = manifest["preview_id"]
     count = len(manifest["entries"])
     if (not manifest.get("selected_topic") or not re.fullmatch(r"[0-9a-f]{64}", batch_id)
@@ -94,6 +131,12 @@ def run_batch(home, manifest, confirmation):
             raise ValueError("批次进度文件与发送预览不匹配")
         if not any(item["status"] == "pending" for item in state["items"]):
             return state
+        # 待审核队列达到用户确认的上限时暂停，不发送任何请求
+        if max_pending is not None and _pending_count(home, scope) >= max_pending:
+            state["halted"] = "queue_limit"
+            atomic_json(journal, state)
+            return state
+        state.pop("halted", None)
         key = read_deepseek_key()
         if not key:
             raise ValueError("ZeroMemory 的 DeepSeek 凭据未配置")
@@ -115,15 +158,15 @@ def run_batch(home, manifest, confirmation):
                         for chunk in response.iter_bytes(chunk_size=65536):
                             raw.extend(chunk)
                             if len(raw) > 2_000_000:
-                                raise ValueError("response too large")
+                                raise ResponseTooLarge("response too large")
                     value = json.loads(raw)["choices"][0]["message"]["content"]
                     result.update(save_candidate(home, manifest, scope, body, entry, value))
                 except httpx.HTTPError:
                     result["status"] = "transport_uncertain"
                     atomic_json(journal, state)
                     break
-                except (ValueError, KeyError, TypeError, IndexError):
-                    result["status"] = "invalid_output"
+                except (ValueError, KeyError, TypeError, IndexError) as exc:
+                    result.update(status="invalid_output", reason=reason_for(exc))
                 except (OSError, sqlite3.Error, portalocker.exceptions.LockException):
                     result["status"] = "local_candidate_error"
                     atomic_json(journal, state)
@@ -139,6 +182,7 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--confirm")
     mode.add_argument("--status", action="store_true")
+    parser.add_argument("--max-pending", type=int, help="待审核数达到此值时暂停，不发送")
     args = parser.parse_args()
     try:
         manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
@@ -149,9 +193,8 @@ def main():
                 "items": [{"status": "pending"} for _ in manifest["entries"]],
             }
         else:
-            state = run_batch(args.home, manifest, args.confirm)
-        counts = Counter(item["status"] for item in state["items"])
-        print(dumps({"batch_id": manifest["preview_id"], "counts": counts}))
+            state = run_batch(args.home, manifest, args.confirm, args.max_pending)
+        print(dumps({**summarize(state), "batch_id": manifest["preview_id"]}))
     except (ValueError, KeyError, OSError, portalocker.exceptions.LockException):
         parser.exit(1, "批次校验或本地操作失败。请检查预览、确认文本、凭据和本地进度。\n")
 
