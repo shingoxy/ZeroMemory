@@ -70,3 +70,23 @@ def test_batch_defer_by_category(app, client):
     preview = client.post("/v1/review/batch/preview", json=body).json()
     assert client.post("/v1/review/batch/apply", json={**body, "confirm": preview["confirm"]}).json()["applied"] == 2
     assert client.get("/v1/review/queue").json()["counts"]["deferred"] == 2
+
+
+def test_batch_reject_skips_memory_approved_mid_apply(app, client, monkeypatch):
+    from .test_review_revoke import _approve_other_on_first_reject
+
+    first, second = (candidate(app, m) for m in seed_messages(client, ["我喜欢纸质笔记", "我习惯晚上写代码"]))
+    body = {"action": "reject", "memory_type": "user_profile"}
+    preview = client.post("/v1/review/batch/preview", json=body).json()
+    _approve_other_on_first_reject(app, monkeypatch, first, second)
+    done = client.post("/v1/review/batch/apply", json={**body, "confirm": preview["confirm"]}).json()
+    statuses = sorted(SQLiteBackend(app.state.store).get(m["memory_id"], Scope()).status for m in (first, second))
+    assert done["applied"] == 1 and len(done["errors"]) == 1 and statuses == ["approved", "rejected"]
+
+
+def test_batch_reject_preview_reports_included_low_priority(app, client):
+    msgs = seed_messages(client, ["我喜欢纸质笔记", "我习惯晚上写代码"])
+    candidate(app, msgs[0], confidence=0.9)
+    candidate(app, msgs[1], confidence=0.3)
+    preview = client.post("/v1/review/batch/preview", json={"action": "reject", "memory_type": "user_profile"}).json()
+    assert (preview["eligible"], preview["low_priority_included"]) == (2, 1)

@@ -101,3 +101,16 @@ REVIEW_ROUTES = [("GET", "/v1/review/queue"), ("POST", "/v1/review/defer"), ("PO
 def test_all_review_routes_reject_client_tokens(client, method, url):
     headers = {"Authorization": "Bearer " + client_token(client)}
     assert client.request(method, url, json={}, headers=headers).status_code == 403
+
+
+def test_sensitive_listing_skips_wrong_typed_fields(app, client):
+    message = seed_messages(client, ["我的投资计划是每月定投"])[0]
+    write_item(app, message)
+    folder = app.state.store.home / FOLDER
+    bad = [{"status": "pending_review", "run_id": RUN_A, "source_message_key": [message["key"]], "candidate": {}},
+           {"status": "pending_review", "run_id": RUN_A, "source_message_key": message["key"], "candidate": "合成"}]
+    for name, item in zip(("e", "f"), bad, strict=True):
+        (folder / (name * 64 + ".json")).write_text(json.dumps(item, ensure_ascii=False), encoding="utf-8")
+    data = client.get("/v1/review/sensitive").json()
+    assert [i["item_id"] for i in data["items"]] == ["c" * 64] and data["skipped_files"] == 2
+    assert client.post(f"/v1/review/runs/{RUN_A}/revoke", json={}).json()["sensitive_items"] == 1

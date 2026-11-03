@@ -314,11 +314,13 @@ class SQLiteBackend:
             self.store.audit(db, "memory_edit", actor, memory_id, {"version": memory.version})
             return memory
 
-    def transition(self, memory_id, scope, status, actor="admin", audit_action=None, details=None):
+    def transition(self, memory_id, scope, status, actor="admin", audit_action=None, details=None, expected_status=None):
         if status not in {"revoked", "rejected"}:
             raise ServiceError("status", "未知状态")
         with self.store.write() as db:
             memory = self._get(db, memory_id, scope)
+            if expected_status and memory.status != expected_status:
+                raise ServiceError("review_state", "记忆状态已变化，未做处理", 409)
             memory.status, memory.valid_to = status, now()
             memory.version += 1
             self._put(db, memory)

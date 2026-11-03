@@ -25,8 +25,15 @@ def revoke_run(store, backend, scope, run_id, confirm=None, actor="admin"):
                 "confirm": expected}
     if confirm != expected:
         raise ServiceError("revoke_confirm", "确认串与批次不匹配", 409)
+    rejected = 0
     for memory_id in pending_ids:
-        backend.transition(memory_id, scope, "rejected", actor=actor, audit_action="memory_run_revoke",
-                           details={"run_id": run_id})
-    return {"run_id": run_id, "rejected": len(pending_ids),
+        try:
+            backend.transition(memory_id, scope, "rejected", actor=actor, audit_action="memory_run_revoke",
+                               details={"run_id": run_id}, expected_status="pending_review")
+            rejected += 1
+        except ServiceError as exc:
+            # 预演之后已被批准或处理的记忆保持不动
+            if exc.status != 409:
+                raise
+    return {"run_id": run_id, "rejected": rejected,
             "sensitive_rejected": reject_run_items(store, scope, run_id, actor)}

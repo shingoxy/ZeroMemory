@@ -121,7 +121,8 @@ async function batchFlow(request) {
   const skipped = Object.entries(preview.skipped).map(([key, count]) => `${SKIP_LABELS[key] || key} ${count}`).join('，') || '无';
   const samples = preview.samples.map(sample => `<li><p class="memory-content">${esc(sample.content)}</p>
     <div class="evidence">证据：${esc(sample.evidence || '暂无逐字引文')}</div></li>`).join('');
-  showDetail(`${label}预览`, `<p>匹配 ${preview.matched} 条，可${esc(label)} ${preview.eligible} 条（单次上限 ${preview.limit}）。跳过：${esc(skipped)}。</p>
+  const folded = preview.low_priority_included ? `其中低优先级（默认折叠）${preview.low_priority_included} 条。` : '';
+  showDetail(`${label}预览`, `<p>匹配 ${preview.matched} 条，可${esc(label)} ${preview.eligible} 条（单次上限 ${preview.limit}）。${folded}跳过：${esc(skipped)}。</p>
     ${samples ? `<p class="subtle">抽样证据：</p><ol class="samples">${samples}</ol>` : ''}
     <div class="actions"><button id="batch-confirm" ${preview.eligible ? '' : 'disabled'}>确认${esc(label)} ${preview.eligible} 条</button></div>`);
   bind('batch-confirm', 'click', async () => {

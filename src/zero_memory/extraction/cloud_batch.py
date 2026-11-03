@@ -87,6 +87,9 @@ def save_candidate(home, manifest, scope, body, entry, response):
     sensitivity = 'sensitive' if candidate.sensitivity == 'sensitive' or SENSITIVE.search(candidate.content) else 'private'
     if sensitivity == 'sensitive':
         folder = home / 'review_queue/v03b/sensitive'
+        if (folder / (dedup_key + '.json')).exists():
+            # 已有隔离条目（含已驳回并清除正文的决定）不重写
+            return {'status': 'duplicate'}
         folder.mkdir(parents=True, exist_ok=True)
         atomic_json(folder / (dedup_key + '.json'), {'status': 'pending_review', 'run_id': manifest['preview_id'],
                     'source_message_key': entry['message_key'], 'source_message_id': row['message_id'],

@@ -95,6 +95,7 @@ def preview_batch(store, backend, scope, request):
         "samples": [{"memory_id": m["memory_id"], "content": m["content"], "evidence": m.get("evidence") or ""}
                     for m in eligible[:SAMPLE_SIZE]],
         "limit": limit, "confirm": _confirm(request, eligible),
+        "low_priority_included": sum(1 for m in eligible if priority(m) < request.threshold),
     }
 
 
@@ -112,7 +113,7 @@ def apply_batch(store, backend, scope, request, confirm, actor="admin_batch"):
             if request.action == "approve":
                 backend.approve(memory_id, scope, actor=actor)
             else:
-                backend.transition(memory_id, scope, "rejected", actor=actor)
+                backend.transition(memory_id, scope, "rejected", actor=actor, expected_status="pending_review")
             applied += 1
         except ServiceError as exc:
             # 只记录编号和错误码，不带正文

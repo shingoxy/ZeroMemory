@@ -29,3 +29,25 @@ def test_run_revoke_unknown_run(app, client):
     assert client.post("/v1/review/runs/not-a-run/revoke", json={}).status_code == 422
     with app.state.store.read() as db:
         assert db.execute("SELECT count(*) FROM audit WHERE action='memory_run_revoke'").fetchone()[0] == 0
+
+
+def _approve_other_on_first_reject(app, monkeypatch, first, second):
+    # 模拟另一个标签页在执行过程中批准了另一条候选
+    real, calls = SQLiteBackend.transition, []
+
+    def racing(self, memory_id, scope, status, **kwargs):
+        if not calls:
+            other = second if memory_id == first["memory_id"] else first
+            SQLiteBackend(app.state.store).approve(other["memory_id"], Scope())
+        calls.append(memory_id)
+        return real(self, memory_id, scope, status, **kwargs)
+
+    monkeypatch.setattr(SQLiteBackend, "transition", racing)
+
+
+def test_run_revoke_keeps_memories_approved_mid_revoke(app, client, monkeypatch):
+    first, second = (candidate(app, m) for m in seed_messages(client, ["我喜欢纸质笔记", "我习惯晚上写代码"]))
+    _approve_other_on_first_reject(app, monkeypatch, first, second)
+    result = client.post(f"/v1/review/runs/{RUN_A}/revoke", json={"confirm": f"确认撤销批次 {RUN_A}"}).json()
+    statuses = sorted(SQLiteBackend(app.state.store).get(m["memory_id"], Scope()).status for m in (first, second))
+    assert result["rejected"] == 1 and statuses == ["approved", "rejected"]

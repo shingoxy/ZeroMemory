@@ -20,6 +20,11 @@ def _load(path):
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict) or not isinstance(value.get("status"), str):
         raise ValueError("敏感条目格式无效")
+    # 待处理条目的字段类型也必须正确，否则按损坏文件跳过，不能让整个审核页报错
+    if value["status"] == "pending_review" and (
+            not isinstance(value.get("candidate"), dict) or not isinstance(value.get("source_message_key"), str)
+            or not isinstance(value.get("run_id"), str | None)):
+        raise ValueError("敏感条目字段类型无效")
     return value
 
 

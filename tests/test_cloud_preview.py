@@ -194,3 +194,18 @@ def test_schema_reason_never_echoes_unknown_field_names():
     with pytest.raises(ValidationError) as caught:
         Candidate.model_validate({"content": "x", "evidence": "x", CANARY: 1})
     assert cloud_batch.reason_for(caught.value) == "schema:extra:extra_forbidden"
+
+
+def test_decided_sensitive_item_is_not_rewritten(tmp_path, app):
+    from zero_memory.schemas.models import Scope
+
+    home, manifest = _engineering_manifest(tmp_path, app, [f"我用 python 脚本整理代码笔记 {CANARY} 敏感测试"])
+    [body], entry = reopen(home, manifest), manifest["entries"][0]
+    text = json.loads(body["messages"][1]["content"])["untrusted_user_text"]
+    response = json.dumps({"memories": [{**_good(text), "sensitivity": "sensitive"}]})
+    scope = Scope(**dict(zip(Scope.model_fields, manifest["scope"], strict=True)))
+    assert cloud_batch.save_candidate(home, manifest, scope, body, entry, response)["status"] == "sensitive_pending"
+    [path] = (home / "review_queue/v03b/sensitive").glob("*.json")
+    path.write_text(json.dumps({"status": "rejected", "candidate_sha256": "0" * 64}), encoding="utf-8")
+    assert cloud_batch.save_candidate(home, manifest, scope, body, entry, response)["status"] == "duplicate"
+    assert CANARY not in path.read_text(encoding="utf-8")
