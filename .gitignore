@@ -22,3 +22,7 @@ ZeroMemory_Chat_Migration_Kit/
 ZeroMemory_Private_Review*/
 chatgpt_messages*.jsonl
 *.report.json
+
+# Local Codex task prompts; keep these files on this machine only.
+/START_HERE.md
+/ZeroMemory_Codex_*.md
