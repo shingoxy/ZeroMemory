@@ -9,6 +9,7 @@ from zero_memory.review import batch as review_batch
 from zero_memory.review import links as review_links
 from zero_memory.review import queue as review_queue
 from zero_memory.review import revoke as review_revoke
+from zero_memory.review import stats as review_stats
 from zero_memory.schemas.models import MemoryType, Scope
 
 RUN_ID = r"^[0-9a-f]{64}$"
@@ -55,6 +56,10 @@ def review_router(store, backend, web_admin):
     @router.post("/batch/apply")
     def batch_apply(body: review_batch.BatchApply):
         return review_batch.apply_batch(store, backend, as_scope(body), body, body.confirm)
+
+    @router.get("/runs")
+    def runs(user_id: str = "default-user", project_id: str = "default"):
+        return review_stats.run_stats(store, Scope(user_id=user_id, project_id=project_id))
 
     @router.post("/runs/{run_id}/revoke")
     def revoke_run(body: RevokeRequest, run_id: str = Path(pattern=RUN_ID)):
