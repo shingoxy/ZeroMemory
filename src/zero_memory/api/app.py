@@ -32,6 +32,7 @@ from zero_memory.llm.provider import Models
 from zero_memory.memory.everos import EverOSAdapter
 from zero_memory.memory.sqlite import SQLiteBackend
 from zero_memory.observatory.service import MemoryObservatoryAdapter
+from zero_memory.review.router import review_router
 from zero_memory.schemas.models import (
     ChatRequest,
     IdentityPatch,
@@ -211,6 +212,7 @@ def create_app(settings: Settings | None = None):
         return p
 
     app.include_router(raw_history_router(store, web_admin))
+    app.include_router(review_router(store, backend, web_admin))
 
     def selected_scope(p, user_id=None, project_id=None):
         scope = Scope(user_id=user_id or p.scope.user_id, project_id=project_id or p.scope.project_id)

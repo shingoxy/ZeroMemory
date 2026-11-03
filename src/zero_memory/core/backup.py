@@ -12,6 +12,8 @@ from zero_memory.importers.raw_history import RAW_TABLES, rebuild_index
 from zero_memory.importers.raw_history import install as install_raw_history
 from zero_memory.importers.service import Importer
 from zero_memory.memory.sqlite import SQLiteBackend
+from zero_memory.review.tables import REVIEW_TABLES
+from zero_memory.review.tables import install as install_review
 from zero_memory.schemas.models import Memory, Soul, Style
 
 TABLES = {
@@ -76,7 +78,7 @@ class Backups:
                         data = source.read_bytes()
                         put(source.relative_to(self.store.home).as_posix(), data)
             present = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            for table in {**TABLES, **EXTENSION_TABLES, **RAW_TABLES}:
+            for table in {**TABLES, **EXTENSION_TABLES, **RAW_TABLES, **REVIEW_TABLES}:
                 if table not in present:
                     continue
                 lines = "".join(dumps(dict(r)) + "\n" for r in db.execute(f"SELECT * FROM {table}"))
@@ -150,10 +152,16 @@ class Backups:
                 raw_tables = {t: columns for t, columns in RAW_TABLES.items() if f"tables/{t}.jsonl" in files}
                 if raw_tables and raw_tables != RAW_TABLES:
                     raise ServiceError("backup_schema", "原始历史表清单不完整", 422)
+                review_tables = {t: columns for t, columns in REVIEW_TABLES.items() if f"tables/{t}.jsonl" in files}
+                if review_tables and review_tables != REVIEW_TABLES:
+                    raise ServiceError("backup_schema", "审核表清单不完整", 422)
                 with restored.write() as db:
                     if raw_tables:
                         install_raw_history(db)
-                    for table, columns in {**TABLES, **{t: EXTENSION_TABLES[t] for t in extensions}, **raw_tables}.items():
+                    if review_tables:
+                        install_review(db)
+                    restore_tables = {**TABLES, **{t: EXTENSION_TABLES[t] for t in extensions}, **raw_tables, **review_tables}
+                    for table, columns in restore_tables.items():
                         db.execute(f"DELETE FROM {table}")
                         with archive.open(f"tables/{table}.jsonl") as source:
                             for line in source:
