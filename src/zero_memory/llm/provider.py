@@ -6,6 +6,7 @@ import httpx
 from zero_memory.core.config import is_loopback_url
 from zero_memory.core.errors import ServiceError
 from zero_memory.core.store import Store, atomic_json, digest, dumps
+from zero_memory.llm.windows_credentials import read_deepseek_key
 from zero_memory.schemas.models import ModelConfig
 
 
@@ -121,13 +122,24 @@ class Models:
             "local": local,
             "ready": ready,
             "reason": reason,
-            "api_key_present": bool(self.settings.llm_api_key),
+            "api_key_present": bool(self._api_key(config)),
             "embedding_ready": False,
             "embedding_reason": "v0.1 使用关键词检索，未启用向量索引",
         }
 
+    def _api_key(self, config):
+        if self.settings.llm_api_key:
+            return self.settings.llm_api_key
+        if config.provider == "openai" and config.base_url.rstrip("/") == "https://api.deepseek.com":
+            try:
+                return read_deepseek_key() or ""
+            except (OSError, UnicodeError):
+                return ""
+        return ""
+
     def provider(self):
-        return HTTPProvider(self.get(), self.settings.llm_api_key)
+        config = self.get()
+        return HTTPProvider(config, self._api_key(config))
 
     def preview_hash(self, messages, scope, purpose):
         # No preview content is persisted. Hash binds consent to exact messages/config/scope.

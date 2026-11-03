@@ -406,6 +406,10 @@ class SQLiteBackend:
 
     def search(self, query: Search) -> list[dict]:
         clauses, params = ["m.user_id=?", "m.agent_id=?", "m.project_id=?"], list(query.sql())
+        if query.review_origin == "deepseek_pilot":
+            clauses.append("json_extract(m.body,'$.source_type')='chatgpt_export' "
+                           "AND instr(json_extract(m.body,'$.review_note'),?)=1")
+            params.append("DeepSeek 试点 ")
         if query.exclude_sensitive:
             clauses.append("json_extract(m.body,'$.sensitivity')!='sensitive'")
         for key in ("status",):

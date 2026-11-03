@@ -127,6 +127,19 @@ def test_unsafe_model_url(client, url):
     assert response.status_code == 400
 
 
+def test_saved_deepseek_key_is_only_used_for_official_destination(app, monkeypatch):
+    monkeypatch.setattr("zero_memory.llm.provider.read_deepseek_key", lambda: "synthetic-key")
+    models = app.state.models
+    config = ModelConfig(provider="openai", model="synthetic", base_url="https://api.deepseek.com", allow_cloud=True)
+    models.save(config)
+    assert models.provider().api_key == "synthetic-key"
+    assert models.status()["api_key_present"]
+    assert "synthetic-key" not in models.path.read_text(encoding="utf-8")
+    models.save(config.model_copy(update={"base_url": "https://example.org"}))
+    assert models.provider().api_key == ""
+    assert not models.status()["api_key_present"]
+
+
 def test_cloud_requires_exact_preview_and_explicit_consent(client, app, monkeypatch):
     app.state.models.save(
         ModelConfig(

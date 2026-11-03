@@ -17,6 +17,7 @@ from zero_memory.activity.service import Activity
 from zero_memory.api.activity import activity_router
 from zero_memory.api.limits import BodyLimitMiddleware, RequestTooLarge
 from zero_memory.api.observatory import observatory_router
+from zero_memory.api.raw_history import raw_history_router
 from zero_memory.core.auth import Auth, Principal
 from zero_memory.core.backup import Backups
 from zero_memory.core.config import Settings
@@ -25,6 +26,7 @@ from zero_memory.core.errors import ServiceError
 from zero_memory.core.identity import Identity
 from zero_memory.core.store import Store, now
 from zero_memory.extraction.service import Extractor
+from zero_memory.importers.raw_history import recover_batches
 from zero_memory.importers.service import Importer
 from zero_memory.llm.provider import Models
 from zero_memory.memory.everos import EverOSAdapter
@@ -102,6 +104,7 @@ def create_app(settings: Settings | None = None):
     @asynccontextmanager
     async def lifespan(app):
         importer.recover()
+        recover_batches(store)
         if activity:
             activity.recover()
         yield
@@ -202,6 +205,13 @@ def create_app(settings: Settings | None = None):
         p.require_admin()
         return p
 
+    def web_admin(request: Request, p: Principal = Depends(admin)):
+        if request.headers.get("authorization") or not request.cookies.get("zero_session"):
+            raise ServiceError("web_session_required", "需要本机 Web 管理会话", 403)
+        return p
+
+    app.include_router(raw_history_router(store, web_admin))
+
     def selected_scope(p, user_id=None, project_id=None):
         scope = Scope(user_id=user_id or p.scope.user_id, project_id=project_id or p.scope.project_id)
         p.check(scope)
@@ -296,6 +306,8 @@ def create_app(settings: Settings | None = None):
     @app.post("/v1/memories/search")
     def search_memories(body: Search, p=Depends(principal)):
         p.check(as_scope(body))
+        if body.review_origin:
+            p.require_admin()
         if not p.admin and body.status != "approved":
             raise ServiceError("review_private", "客户端只能读取已批准记忆", 403)
         return {"items": backend.search(body), "offset": body.offset, "limit": body.limit}
@@ -387,7 +399,7 @@ def create_app(settings: Settings | None = None):
         return importer.preview(file.file, file.filename or "input.json", parsed)
 
     @app.get("/v1/imports")
-    def list_imports(user_id: str | None = None, project_id: str | None = None, p=Depends(admin)):
+    def list_imports(user_id: str | None = None, project_id: str | None = None, p=Depends(web_admin)):
         scope = selected_scope(p, user_id, project_id)
         with store.read() as db:
             return [
@@ -398,7 +410,7 @@ def create_app(settings: Settings | None = None):
             ]
 
     @app.get("/v1/imports/{job_id}")
-    def get_import(job_id: str, user_id: str | None = None, project_id: str | None = None, p=Depends(admin)):
+    def get_import(job_id: str, user_id: str | None = None, project_id: str | None = None, p=Depends(web_admin)):
         return importer.get(job_id, selected_scope(p, user_id, project_id))
 
     @app.post("/v1/imports/{job_id}/start")
@@ -423,7 +435,7 @@ def create_app(settings: Settings | None = None):
         query: str = Query("", max_length=500),
         offset: int = Query(0, ge=0),
         limit: int = Query(50, ge=1, le=200),
-        p=Depends(admin),
+        p=Depends(web_admin),
     ):
         return {
             "items": importer.messages(
@@ -432,15 +444,15 @@ def create_app(settings: Settings | None = None):
         }
 
     @app.post("/v1/extractions/quote/{message_key}")
-    def quote(message_key: str, body: Scope, p=Depends(admin)):
+    def quote(message_key: str, body: Scope, p=Depends(web_admin)):
         return extractor.quote(body, message_key)
 
     @app.post("/v1/extractions/preview")
-    def extraction_preview(body: ExtractRequest, p=Depends(admin)):
+    def extraction_preview(body: ExtractRequest, p=Depends(web_admin)):
         return extractor.preview(as_scope(body), body.limit)
 
     @app.post("/v1/extractions/run")
-    def extraction_run(body: ExtractRequest, p=Depends(admin)):
+    def extraction_run(body: ExtractRequest, p=Depends(web_admin)):
         return extractor.run(as_scope(body), body.limit, body.consent, body.preview_hash)
 
     @app.get("/v1/context")

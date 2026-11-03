@@ -19,12 +19,12 @@ function options(map, selected='', all=false) {return (all?'<option value="">全
 function jsonView(value) {return `<pre>${esc(JSON.stringify(value,null,2))}</pre>`;}
 function showDetail(title, value) { $('detail-body').innerHTML=`<h2>${esc(title)}</h2>${typeof value==='string'?value:jsonView(value)}`; $('detail').showModal(); }
 function bind(id, event, callback) {const el=$(id);if(el) el.addEventListener(event, async ev=>{try{await callback(ev);}catch(e){notify(e.message,true);}});}
-async function navigate(next) {
+async function navigate(next, evidence) {
   clearTimeout(pollTimer); if(pageCleanup){pageCleanup();pageCleanup=null;} page=next; notify('');
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
-  $('page-title').textContent={overview:'身份与状态',observatory:'记忆星海',activity:'持续目标与经历',memories:'记忆档案',imports:'导入对话',review:'审核工作台',chat:'与零对话',settings:'模型与系统'}[page];
+  $('page-title').textContent={overview:'身份与状态',observatory:'记忆星海',activity:'持续目标与经历',memories:'记忆档案',imports:'导入对话',rawHistory:'原始对话',review:'审核工作台',chat:'与零对话',settings:'模型与系统'}[page];
   content.innerHTML='<p class="subtle">正在读取本地数据…</p>';
-  try {await ({overview,observatory:()=>observatory(),activity:()=>activityPage(),memories:()=>memoryPage(false),imports,review:()=>memoryPage(true),chat,settings})[page]();}
+  try {await ({overview,observatory:()=>observatory(),activity:()=>activityPage(),memories:()=>memoryPage(false),imports,rawHistory:()=>rawHistoryPage(evidence),review:()=>memoryPage(true),chat,settings})[page]();}
   catch(e){content.innerHTML='<div class="empty">暂时无法加载。请检查本地服务后重试。</div>';notify(e.message,true);}
 }
 async function overview() {
@@ -39,15 +39,33 @@ async function overview() {
   bind('state-reset','click',async()=>{await api('/v1/persona-state',{method:'POST',body:{...scope,event:'reset'}});await overview();});
   content.querySelectorAll('[data-rollback]').forEach(b=>b.onclick=async()=>{try{if(!confirm('授权将此历史人格恢复为一个新版本？'))return;await api('/v1/identity/rollback',{method:'POST',body:{version:Number(b.dataset.rollback),expected_version:id.version,authorized:true}});await overview();}catch(e){notify(e.message,true);}});
 }
-function renderMemory(m,review=false) {return `<article class="memory"><div class="checkbox-row">${review?`<input type="checkbox" data-select="${esc(m.memory_id)}" aria-label="选择此记忆">`:''}<div><span class="tag">${esc(types[m.memory_type])}</span><span class="tag ${esc(m.status)}">${esc(statuses[m.status])}</span><span class="tag">${esc(m.source_type)} · ${esc(m.source_role)}</span><p class="memory-content">${esc(m.content)}</p><p class="meta">${esc(m.event_time||m.event_time_original||m.extracted_at)} · v${m.version} · ${esc(m.memory_id)}</p>${m.evidence?`<div class="evidence">证据：${esc(m.evidence)}</div>`:''}${m.conflicts.length?`<p class="warn subtle">存在冲突：${esc(m.conflicts.join(', '))}</p>`:''}<div class="actions"><button class="ghost" data-detail="${esc(m.memory_id)}">来源与修订</button>${m.status==='pending_review'?`<button data-approve="${esc(m.memory_id)}">批准</button><button class="secondary" data-reject="${esc(m.memory_id)}">驳回</button>`:''}<button class="ghost" data-edit="${esc(m.memory_id)}">编辑</button><button class="ghost" data-merge="${esc(m.memory_id)}">合并</button>${m.status==='approved'?`<button class="ghost" data-revoke="${esc(m.memory_id)}">撤销</button>`:''}<button class="ghost" data-delete="${esc(m.memory_id)}">删除</button></div></div></div></article>`;}
+const isDeepSeekPilot = m => m.source_type === "chatgpt_export" && m.review_note?.startsWith("DeepSeek 试点 ");
+function deepSeekLabel(memory) {
+  if (isDeepSeekPilot(memory)) return '<span class="tag" data-review-origin="deepseek-pilot">DeepSeek 试点</span>';
+  if (memory.source_type === 'chatgpt_export' && memory.review_note?.startsWith('DeepSeek 批次 ')) {
+    return '<span class="tag">DeepSeek 批次</span>';
+  }
+  return '';
+}
+function renderMemory(m,review=false) {return `<article class="memory"><div class="checkbox-row">${review?`<input type="checkbox" data-select="${esc(m.memory_id)}" aria-label="选择此记忆">`:''}<div><span class="tag">${esc(types[m.memory_type])}</span><span class="tag ${esc(m.status)}">${esc(statuses[m.status])}</span><span class="tag">${esc(m.source_type)} · ${esc(m.source_role)}</span>${deepSeekLabel(m)}<p class="memory-content">${esc(m.content)}</p><p class="meta">${esc(m.event_time||m.event_time_original||m.extracted_at)} · v${m.version} · ${esc(m.memory_id)}</p>${m.evidence?`<div class="evidence">证据：${esc(m.evidence)}</div>`:''}${m.conflicts.length?`<p class="warn subtle">存在冲突：${esc(m.conflicts.join(', '))}</p>`:''}<div class="actions"><button class="ghost" data-detail="${esc(m.memory_id)}">来源与修订</button>${m.status==='pending_review'?`<button data-approve="${esc(m.memory_id)}">批准</button><button class="secondary" data-reject="${esc(m.memory_id)}">驳回</button>`:''}<button class="ghost" data-edit="${esc(m.memory_id)}">编辑</button><button class="ghost" data-merge="${esc(m.memory_id)}">合并</button>${m.status==='approved'?`<button class="ghost" data-revoke="${esc(m.memory_id)}">撤销</button>`:''}<button class="ghost" data-delete="${esc(m.memory_id)}">删除</button></div></div></div></article>`;}
 async function memoryPage(review) {
   content.innerHTML=`<section class="card"><div class="section-head"><h2>${review?'每一条事实，都由你确认。':'属于零的长期记忆'}</h2><button id="new-memory" class="secondary">手工提议记忆</button></div><p class="subtle">${review?'自动提炼只产生候选；旧 Assistant 内容保留外部推断标记。批量批准遇到冲突时会报告并跳过。':'只向模型提供已批准记忆。修改会生成新版本，并重新进入审核。'}</p><div class="filters"><input id="memory-query" placeholder="关键词，支持中文子串" aria-label="搜索记忆"><select id="memory-type" aria-label="记忆类型">${options(types,'',true)}</select><select id="memory-status" aria-label="记忆状态">${options(statuses,review?'pending_review':'approved',true)}</select><input id="memory-source" placeholder="来源类型" aria-label="来源类型"></div><div class="filter-dates"><label>起始日期<input type="date" id="memory-since"></label><label>结束日期<input type="date" id="memory-until"></label><button id="memory-search">检索</button></div>${review?'<div class="actions"><label class="check"><input id="select-all" type="checkbox">全选此页</label><button id="batch-approve">批准所选</button><button class="secondary" id="batch-reject">驳回所选</button></div>':''}<div id="memory-results"></div><div class="actions"><button id="memory-prev" class="secondary">上一页</button><button id="memory-next" class="secondary">下一页</button></div></section>`;
+  if (review) {
+    $("memory-search").insertAdjacentHTML("beforebegin", '<label class="check"><input id="review-deepseek-pilot" type="checkbox">只看早期 DeepSeek 试点</label>');
+    $("review-deepseek-pilot").checked = location.hash === "#deepseek-pilot";
+    if (reviewImportedMemories) $("memory-source").value = "chatgpt_export";
+    if (reviewImportedMemories || location.hash === "#deepseek-pilot") {
+      $("memory-search").insertAdjacentHTML("afterend", '<a href="/?review=all">查看全部待审核</a>');
+    }
+  }
   let offset=0;
   async function load() {
     const params={...scope,query:$('memory-query').value,status:$('memory-status').value||null,memory_type:$('memory-type').value||null,source_type:$('memory-source').value||null,limit:30,offset,since:$('memory-since').value?$('memory-since').value+'T00:00:00+00:00':null,until:$('memory-until').value?$('memory-until').value+'T23:59:59+00:00':null};
+    if ($("review-deepseek-pilot")?.checked) params.review_origin = "deepseek_pilot";
     const data=await api('/v1/memories/search',{method:'POST',body:params});currentItems=data.items;$('memory-results').innerHTML=data.items.length?data.items.map(m=>renderMemory(m,review)).join(''):'<div class="empty">这里还没有符合条件的记忆。可以导入对话，再引用原文或使用模型提炼候选。</div>';
     $('memory-prev').disabled=offset===0;$('memory-next').disabled=data.items.length<30; bindMemoryActions(load);
   }
+  bind('review-deepseek-pilot','change',async()=>{offset=0;await load();});
   bind('memory-search','click',async()=>{offset=0;await load();});bind('memory-prev','click',async()=>{offset=Math.max(0,offset-30);await load();});bind('memory-next','click',async()=>{offset+=30;await load();});
   bind('new-memory','click',()=>memoryEditor(null,load));
   bind('select-all','change',ev=>document.querySelectorAll('[data-select]').forEach(x=>x.checked=ev.target.checked));
@@ -55,8 +73,44 @@ async function memoryPage(review) {
   await load();
 }
 async function approveOrReject(m,action) {const body={...scope};if(action==='approve'){if(m.conflicts.length || m.summary_links?.length){const id=prompt('请选择取代的旧 memory_id（较早事件不能取代较新事件）',m.conflicts[0] || m.summary_links[0]);if(!id)throw Error('未指定冲突处理');body.supersedes=id;}if(!m.evidence_verified||m.source_role!=='user'){if(!confirm('这是一条手工陈述或外部推断，不能视为已验证的用户亲述。仍批准为可引用资料？'))throw Error('未确认外部资料');body.confirm_external=true;}}return api(`/v1/memories/${m.memory_id}/${action}`,{method:'POST',body});}
+function evidenceControls(memory) {
+  if (memory.source_type !== 'chatgpt_export') return '';
+  const keys = [...new Set(memory.source_message_keys || [])];
+  return keys.map((_, index) => `<button type="button" class="secondary" data-evidence-index="${index}">打开原始消息 ${index + 1}</button>`).join('')
+    + '<button type="button" class="secondary" id="evidence-associations">对照旧记忆</button><div id="evidence-matches"></div>';
+}
+function bindEvidenceActions(memory) {
+  const keys = [...new Set(memory.source_message_keys || [])];
+  bind('evidence-associations', 'click', async event => {
+    const button = event.currentTarget;
+    const result = await api(`/v1/raw-history/associations/${encodeURIComponent(memory.memory_id)}?${qs()}`);
+    if (!$('detail').open || !button.isConnected) return;
+    const signal = result.has_time_change_wording ? '检测到时间变化措辞，需结合双方时间判断。' : '';
+    $('evidence-matches').innerHTML = `<p class="subtle">词面重合 ${esc(result.total_matches)} 条，最多展示 3 条。关联与冲突由人工判断。${signal}</p>`
+      + result.items.map(({overlap, memory: old}) => `<details><summary>${esc(statuses[old.status])} · v${esc(old.version)} · ${esc(overlap)} 个重合片段</summary>
+        <p class="memory-content">${esc(old.content)}</p><p class="meta">事件时间 ${esc(old.event_time || old.event_time_original || '未知')}</p>
+        <p>旧记忆证据：${esc(old.evidence || '暂无逐字引文')}</p><p>新记忆证据：${esc(memory.evidence || '暂无逐字引文')}</p>
+        ${jsonView({memory_id: old.memory_id, source_type: old.source_type, source_artifact: old.source_artifact,
+          source_conversation_id: old.source_conversation_id, source_message_ids: old.source_message_ids})}</details>`).join('');
+  });
+  $('detail-body').querySelectorAll('[data-evidence-index]').forEach(button => {
+    button.onclick = async () => {
+      try {
+        const messageKey = keys[Number(button.dataset.evidenceIndex)];
+        const target = await api(`/v1/raw-history/evidence/${encodeURIComponent(messageKey)}?${qs()}`);
+        if (!$('detail').open || !button.isConnected) return;
+        $('detail').close();
+        await navigate('rawHistory', {...target, messageKey, quote: memory.evidence,
+          eventTime: memory.event_time || memory.event_time_original});
+      } catch (error) {
+        const notice = $('evidence-error');
+        if (button.isConnected && notice) notice.textContent = error.message;
+      }
+    };
+  });
+}
 function bindMemoryActions(reload) {
-  for(const action of ['approve','reject','revoke','delete','detail','edit','merge']) content.querySelectorAll(`[data-${action}]`).forEach(b=>b.onclick=async()=>{try{const id=b.dataset[action],m=currentItems.find(x=>x.memory_id===id);if(action==='detail'){const versions=await api(`/v1/memories/${id}/versions?`+qs());showDetail('来源与版本',`<p class="subtle">导入证据表示原文存在；语义是否成立仍须人工判断。旧备份不会随活动记忆删除。</p>${jsonView(m)}<h3>修订历史</h3>${versions.map(v=>`<details><summary>v${v.version} · ${esc(statuses[v.status])}</summary>${jsonView(v)}<button data-undo="${v.version}">撤回到此内容（重新审核）</button></details>`).join('')}`);$('detail-body').querySelectorAll('[data-undo]').forEach(x=>x.onclick=async()=>{try{await api(`/v1/memories/${id}/undo`,{method:'POST',body:{...scope,version:Number(x.dataset.undo)}});$('detail').close();await reload();}catch(e){notify(e.message,true);}});return;}if(action==='merge'){const other=prompt('输入要合并的另一条 memory_id（须同一作用域）',m.duplicate_candidates[0]||'');if(!other)return;const text=prompt('输入合并后的内容（完整来源会被保留，保存后仍待审核）',m.content);if(!text)return;await api('/v1/memories/merge',{method:'POST',body:{...scope,memory_ids:[id,other],content:text}});await reload();notify('合并候选已保存；批准后旧记录转为历史。');return;}if(action==='edit'){memoryEditor(m,reload);return;}if(action==='delete'){if(!confirm('删除此活动记忆和修订？原始对话与旧备份仍保留。'))return;await api('/v1/memories/'+id,{method:'DELETE',body:scope});}else if(action==='revoke')await api(`/v1/memories/${id}/revoke`,{method:'POST',body:scope});else await approveOrReject(m,action);await reload();notify('记忆已更新');}catch(e){notify(e.message,true);}});
+  for(const action of ['approve','reject','revoke','delete','detail','edit','merge']) content.querySelectorAll(`[data-${action}]`).forEach(b=>b.onclick=async()=>{try{const id=b.dataset[action],m=currentItems.find(x=>x.memory_id===id);if(action==='detail'){const versions=await api(`/v1/memories/${id}/versions?`+qs());showDetail('来源与版本',`<p class="subtle">导入证据表示原文存在；语义是否成立仍须人工判断。旧备份不会随活动记忆删除。</p>${evidenceControls(m)}<p id="evidence-error" role="alert"></p>${jsonView(m)}<h3>修订历史</h3>${versions.map(v=>`<details><summary>v${v.version} · ${esc(statuses[v.status])}</summary>${jsonView(v)}<button data-undo="${v.version}">撤回到此内容（重新审核）</button></details>`).join('')}`);bindEvidenceActions(m);$('detail-body').querySelectorAll('[data-undo]').forEach(x=>x.onclick=async()=>{try{await api(`/v1/memories/${id}/undo`,{method:'POST',body:{...scope,version:Number(x.dataset.undo)}});$('detail').close();await reload();}catch(e){notify(e.message,true);}});return;}if(action==='merge'){const other=prompt('输入要合并的另一条 memory_id（须同一作用域）',m.duplicate_candidates[0]||'');if(!other)return;const text=prompt('输入合并后的内容（完整来源会被保留，保存后仍待审核）',m.content);if(!text)return;await api('/v1/memories/merge',{method:'POST',body:{...scope,memory_ids:[id,other],content:text}});await reload();notify('合并候选已保存；批准后旧记录转为历史。');return;}if(action==='edit'){memoryEditor(m,reload);return;}if(action==='delete'){if(!confirm('删除此活动记忆和修订？原始对话与旧备份仍保留。'))return;await api('/v1/memories/'+id,{method:'DELETE',body:scope});}else if(action==='revoke')await api(`/v1/memories/${id}/revoke`,{method:'POST',body:scope});else await approveOrReject(m,action);await reload();notify('记忆已更新');}catch(e){notify(e.message,true);}});
 }
 const proposalFields=['memory_type','content','source_type','source_conversation_id','source_message_ids','source_message_keys','source_role','evidence','event_time','valid_from','valid_to','confidence','inference_type','sensitivity','fact_key','claim_kind','origin_quality','topic','review_note','dedup_key','source_artifact','summary_links','event_time_original','event_time_precision','activity_goal_id','activity_episode_ids','activity_artifact_ids'];
 function memoryEditor(m,reload) {
@@ -92,7 +146,15 @@ async function settings() {
   bind('client-form','submit',async ev=>{ev.preventDefault();const c=await api('/v1/clients',{method:'POST',body:{...scope,name:$('client-name').value,writable:$('client-write').checked}});$('client-token').innerHTML=`<p class="subtle">只显示这一次。不要将令牌提交 Git。</p><div class="token">${esc(c.token)}</div><p class="subtle">设置 ZERO_API_TOKEN；ZERO_MCP_USER_ID=${esc(scope.user_id)}；ZERO_MCP_PROJECT_ID=${esc(scope.project_id)}。详见 docs/MCP_SETUP.md。</p>`;});
   content.querySelectorAll('[data-client-revoke]').forEach(b=>b.onclick=async()=>{try{await api('/v1/clients/'+b.dataset.clientRevoke,{method:'DELETE'});await settings();notify('客户端令牌已撤销');}catch(e){notify(e.message,true);}});
 }
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  if (b.dataset.page === 'review' && (reviewImportedMemories || location.hash === '#deepseek-pilot')) {
+    location.assign('/?review=all');
+    return;
+  }
+  navigate(b.dataset.page);
+});
 $('detail-close').onclick=()=>$('detail').close();
 $('scope-apply').onclick=()=>{scope={...scope,user_id:$('scope-user').value.trim(),project_id:$('scope-project').value.trim()};messageOffset=0;navigate(page);};
-navigate('overview');
+const reviewMode = new URLSearchParams(location.search).get('review');
+const reviewImportedMemories = reviewMode === 'chatgpt_export';
+navigate(reviewImportedMemories || reviewMode === 'all' || location.hash === '#deepseek-pilot' ? 'review' : 'overview');

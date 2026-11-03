@@ -172,6 +172,23 @@ def test_zip_split_json_and_wrapper(client):
     assert job["inserted"] == 2 and len(job["conversations"]) == 2
 
 
+def test_official_zip_ignores_asset_index_and_shared_metadata(client):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("conversation_asset_file_names.json", json.dumps({"file_demo.dat": "example.png"}))
+        z.writestr("shared_conversations.json", json.dumps([{"id": "share", "title": "share metadata"}]))
+        z.writestr("sectioned_conversations.json", "[]")
+        for number in range(2):
+            z.writestr(f"archive/conversations-{number:03}.json", json.dumps([
+                {"id": f"c{number}", "messages": [{"role": "user", "content": f"合成卷 {number}"}]}
+            ]))
+    first = import_data(client, buf.getvalue(), "official.zip")
+    assert first["status"] == "completed" and first["inserted"] == 2 and first["failed"] == 0
+    assert len(first["conversations"]) == 2
+    repeated = import_data(client, buf.getvalue(), "renamed.zip")
+    assert repeated["inserted"] == 0 and repeated["duplicates"] == 2
+
+
 @pytest.mark.parametrize("name", ["../escape.json", "/absolute.json", "C:/file.json", "..\\escape.json"])
 def test_zip_traversal(client, name):
     buf = io.BytesIO()

@@ -8,6 +8,8 @@ from zero_memory.core.errors import ServiceError
 from zero_memory.core.identity import Identity
 from zero_memory.core.store import Store, digest, dumps
 from zero_memory.importers.chatgpt import safe_zip
+from zero_memory.importers.raw_history import RAW_TABLES, rebuild_index
+from zero_memory.importers.raw_history import install as install_raw_history
 from zero_memory.importers.service import Importer
 from zero_memory.memory.sqlite import SQLiteBackend
 from zero_memory.schemas.models import Memory, Soul, Style
@@ -74,7 +76,7 @@ class Backups:
                         data = source.read_bytes()
                         put(source.relative_to(self.store.home).as_posix(), data)
             present = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            for table in {**TABLES, **EXTENSION_TABLES}:
+            for table in {**TABLES, **EXTENSION_TABLES, **RAW_TABLES}:
                 if table not in present:
                     continue
                 lines = "".join(dumps(dict(r)) + "\n" for r in db.execute(f"SELECT * FROM {table}"))
@@ -145,8 +147,13 @@ class Backups:
                     raise ServiceError("backup_schema", "扩展表清单不完整", 422)
                 if extensions:
                     migrate(restored)
+                raw_tables = {t: columns for t, columns in RAW_TABLES.items() if f"tables/{t}.jsonl" in files}
+                if raw_tables and raw_tables != RAW_TABLES:
+                    raise ServiceError("backup_schema", "原始历史表清单不完整", 422)
                 with restored.write() as db:
-                    for table, columns in {**TABLES, **{t: EXTENSION_TABLES[t] for t in extensions}}.items():
+                    if raw_tables:
+                        install_raw_history(db)
+                    for table, columns in {**TABLES, **{t: EXTENSION_TABLES[t] for t in extensions}, **raw_tables}.items():
                         db.execute(f"DELETE FROM {table}")
                         with archive.open(f"tables/{table}.jsonl") as source:
                             for line in source:
@@ -168,6 +175,8 @@ class Backups:
                                     f"INSERT INTO {table}({','.join(columns)}) VALUES({','.join('?' for _ in columns)})",
                                     [row[k] for k in columns],
                                 )
+                    if raw_tables:
+                        rebuild_index(db)
                 for name in files:
                     if name.startswith(("identity/", "sources/", "activity_artifacts/")):
                         destination = staging / name

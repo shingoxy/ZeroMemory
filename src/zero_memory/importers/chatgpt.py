@@ -1,6 +1,7 @@
 import io
 import json
 import math
+import re
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -12,7 +13,7 @@ from zero_memory.core.errors import ServiceError
 from zero_memory.core.store import digest, dumps
 
 
-def safe_zip(path: Path, settings: Settings, max_files=1000):
+def safe_zip(path: Path, settings: Settings, max_files=1000, max_ratio=100):
     try:
         archive = zipfile.ZipFile(path)
         total = 0
@@ -37,7 +38,7 @@ def safe_zip(path: Path, settings: Settings, max_files=1000):
             if (
                 item.file_size > settings.max_member_bytes
                 or total > settings.max_expanded_bytes
-                or item.file_size > max(1024 * 1024, item.compress_size * 100)
+                or item.file_size > max(1024 * 1024, item.compress_size * max_ratio)
             ):
                 raise ServiceError("zip_limit", "ZIP 展开大小或压缩比超过限制")
             if item.flag_bits & 1:
@@ -234,6 +235,16 @@ def records(path: Path, settings: Settings):
     try:
         if path.suffix.lower() == ".zip":
             with safe_zip(path, settings) as archive:
+                # Official exports also contain conversation asset indexes and sharing metadata.
+                # Prefer their actual conversation volumes over similarly named metadata files.
+                volumes = sorted(
+                    x.filename
+                    for x in archive.infolist()
+                    if not x.is_dir()
+                    and re.fullmatch(
+                        r"conversations?(?:[-_]\d+)?\.jsonl?", Path(x.filename).name, re.IGNORECASE
+                    )
+                )
                 candidates = sorted(
                     x.filename
                     for x in archive.infolist()
@@ -244,6 +255,7 @@ def records(path: Path, settings: Settings):
                         or Path(x.filename).suffix.lower() == ".jsonl"
                     )
                 )
+                candidates = volumes or candidates
                 if not candidates:
                     candidates = sorted(
                         x.filename

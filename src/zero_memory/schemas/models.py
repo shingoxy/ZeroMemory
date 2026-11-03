@@ -111,6 +111,7 @@ class Search(Scope):
     since: str | None = None
     until: str | None = None
     exclude_sensitive: bool = False
+    review_origin: Literal["deepseek_pilot"] | None = None
 
 
 class Traits(StrictModel):
