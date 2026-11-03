@@ -5,6 +5,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import Field
 
+from zero_memory.review import batch as review_batch
 from zero_memory.review import links as review_links
 from zero_memory.review import queue as review_queue
 from zero_memory.schemas.models import MemoryType, Scope
@@ -41,6 +42,14 @@ def review_router(store, backend, web_admin):
     @router.post("/defer")
     def defer(body: DeferRequest):
         return review_queue.defer(store, as_scope(body), body.memory_ids, "admin", undo=body.undo)
+
+    @router.post("/batch/preview")
+    def batch_preview(body: review_batch.BatchRequest):
+        return review_batch.preview_batch(store, backend, as_scope(body), body)
+
+    @router.post("/batch/apply")
+    def batch_apply(body: review_batch.BatchApply):
+        return review_batch.apply_batch(store, backend, as_scope(body), body, body.confirm)
 
     @router.post("/links/suggest")
     def suggest_links(body: Scope):
