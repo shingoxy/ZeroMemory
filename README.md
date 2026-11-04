@@ -137,7 +137,7 @@ allow_cloud = false
 | 迁移包 | 2026-10-29 | 56 条摘要记忆以待审核状态增量导入，身份 v2 | 完成 |
 | v0.2 | 2026-10-30 | 记忆星海、人格与模拟状态、持续目标与经历、方法积累 | 完成 |
 | v0.3a | 2026-11-03 | OpenAI 完整导出作为原始证据入库，计数对账、逐字抽样、回滚演练 | 完成 |
-| v0.3b | 进行中 | 记忆提炼、关联与审核 | 代码完成，待生产验收 |
+| v0.3b | 2026-11-04 | 记忆提炼、关联与审核 | 完成，候选待人工审核 |
 
 v0.3a 已在真实导出上完成入库验收：515 个会话、12,696 条消息计数对账一致，固定种子抽取 200 条逐字核对通过，原有记忆与身份保全，全程未调用模型。详见[入库验收](docs/IMPORT_V03A_REPORT.md)。
 
@@ -150,10 +150,12 @@ v0.3b 的提炼经用户逐批确认后使用 DeepSeek 云端执行，包括两�
 - 稍后处理、低优先级折叠、键盘快捷键，以及按类别或所选的批量操作，执行前预览数量与抽样证据
 - 按提炼批次撤销待审核候选，批次统计（通过率、驳回率、估算审核耗时）和失败原因码
 
-v0.3b 尚未完成：
+2026-11-04 已在生产库上线：备份的隔离恢复结果一致，本地关联建议共 313 条，时间冲突 0 条，原有记忆指纹不变。详见 [v0.3b 验收报告](docs/EXTRACTION_V03B_REPORT.md)。
 
-- 生产库上线：备份、合并、重启服务、在真实数据上计算关联建议，并写最终验收报告（需另行确认）
-- 本轮 76 条输出校验失败当时未留存响应，无法回溯原因；之后的批次会记录原因码
+后续待办：
+
+- 人工审核 430 条待审核记忆，包括确认或忽略关联建议、处理 3 条敏感隔离候选
+- 77 条输出校验失败（积压 76 条、工程主题批次 1 条）当时未留存响应，无法回溯原因；之后的批次会记录原因码
 - 其余 2,388 条提炼任务（超长、命中敏感规则、含附件或未入选）待后续处理
 
 ## 项目目标
@@ -197,7 +199,7 @@ v0.3b 尚未完成：
 - [v0.2 操作与回退](docs/V02_GUIDE.md)
 - [历史聊天与迁移包导入](docs/IMPORT_GUIDE.md)
 - v0.3a 原始历史：[导入前基线](docs/BASELINE_BEFORE_V03A.md)、[预览](docs/IMPORT_V03A_PREVIEW.md)、[入库验收](docs/IMPORT_V03A_REPORT.md)
-- v0.3b 提炼：[小样本试点](docs/EXTRACTION_PILOT_REPORT.md)、[扩大试点](docs/EXTRACTION_EXPANDED_PILOT_REPORT.md)、[后续验收与积压提炼](docs/EXTRACTION_FOLLOWUP.md)
+- v0.3b 提炼：[小样本试点](docs/EXTRACTION_PILOT_REPORT.md)、[扩大试点](docs/EXTRACTION_EXPANDED_PILOT_REPORT.md)、[后续验收与积压提炼](docs/EXTRACTION_FOLLOWUP.md)、[验收报告](docs/EXTRACTION_V03B_REPORT.md)
 - [MCP 客户端配置](docs/MCP_SETUP.md)
 - [架构](docs/ARCHITECTURE.md)与[数据模型](docs/DATA_MODEL.md)
 - [安全与隐私边界](docs/SECURITY.md)
